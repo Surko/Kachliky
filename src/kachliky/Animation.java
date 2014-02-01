@@ -4,8 +4,6 @@
  */
 package kachliky;
 
-import cz.matfyz.sykora.nngui.data.DataProvider;
-import cz.matfyz.sykora.nngui.data.RandomizedAdaptionProvider;
 import cz.matfyz.sykora.nngui.network.AdaptationStrategy;
 import cz.matfyz.sykora.nngui.network.Network;
 import cz.matfyz.sykora.nngui.network.NetworkBuilder;
@@ -14,38 +12,35 @@ import cz.matfyz.sykora.nngui.network.NeuronRow;
 import cz.matfyz.sykora.nngui.network.SigmoidModel;
 import cz.matfyz.sykora.nngui.network.SimpleBackPropagation;
 import java.awt.BorderLayout;
+import java.awt.Color;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dimension;
-import java.awt.Rectangle;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.image.BufferedImage;
-import java.awt.image.DataBufferByte;
 import java.awt.image.Raster;
 import java.awt.image.WritableRaster;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Enumeration;
 import java.util.Iterator;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.imageio.ImageIO;
-import javax.swing.DefaultListCellRenderer;
+import javax.swing.BorderFactory;
 import javax.swing.DefaultListModel;
-import javax.swing.ImageIcon;
 import javax.swing.JButton;
 import javax.swing.JFrame;
-import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.JSeparator;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.ListCellRenderer;
-import javax.swing.ListModel;
-import javax.swing.event.ListDataListener;
+import javax.swing.SwingConstants;
+import javax.swing.border.EmptyBorder;
 import kachliky.components.ImageComp;
 import plugins.AnimPlugin;
 
@@ -61,16 +56,19 @@ public class Animation extends AnimPlugin {
     
     public static JFrame frame;  
     public static ImageComp image1Panel,image2Panel;
+    public static JScrollPane listPane;
     public static JTextArea text;
-    public static JTextField learnField,hiddenField,iterField;
-    public static JList<ImageComp> listofImages;
-    public static JButton train,resolve,setBest;
+    public static JTextField learnField,hiddenField,iterField,sizeField;
+    public static JList listofImages;
+    public static JButton train,resolve,setBest,stop;
     public static BufferedImage img;
     
     public static MyProvider inpProvider,outProvider;
     public static ArrayList<DoubleContainer> weightRows;
     public static Network net;
     public static AdaptationStrategy strategy;
+    
+    public static Thread trainThread;
     
     public static double globalError;    
     public static int dlazdic_w, dlazdic_h, dlazdic_count;
@@ -79,11 +77,18 @@ public class Animation extends AnimPlugin {
     public static int defIter = 100;
     public static String hiddenFieldString = "10";
     
-    class ImageModel implements ListCellRenderer<ImageComp> {
+    class ImageModel implements ListCellRenderer {
+        
 
         @Override
-        public Component getListCellRendererComponent(JList<? extends ImageComp> list, ImageComp value, int index, boolean isSelected, boolean cellHasFocus) {            
-            return value;
+        public Component getListCellRendererComponent(JList list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+            if (value instanceof ImageComp) {
+                JPanel paneling = new JPanel(new BorderLayout(5,5));
+                paneling.add((Component)value);
+                paneling.setBorder(BorderFactory.createMatteBorder(5, 5, 5, 5, Color.DARK_GRAY));
+                return paneling;
+            }
+            return null;
         }
                                      
     }
@@ -103,6 +108,16 @@ public class Animation extends AnimPlugin {
         
     }
     
+    class Resolving implements Runnable {
+
+        @Override
+        public void run() {
+            resolve();
+            value();
+        }
+        
+    }
+    
     class Training implements Runnable {
 
         @Override
@@ -110,7 +125,8 @@ public class Animation extends AnimPlugin {
             BufferedImage imaag = ((ImageComp)image1Panel).getImage();        
 
             text.setText("");
-
+            
+            size = Integer.parseInt(sizeField.getText());
             dlazdic_w = imaag.getWidth() / size;
             dlazdic_h = imaag.getHeight() / size;
             inpOutNeurons = size * size;
@@ -149,13 +165,18 @@ public class Animation extends AnimPlugin {
             inpProvider = new MyProvider(dlazdica);
             outProvider = new MyProvider(dlazdica);            
 
+            inpProvider.reroll();
+            inpProvider.rewind();
+            outProvider.setPermutation(inpProvider.getPermutation());
+            outProvider.rewind();
+            
             try {
                 net.setInputProvider(inpProvider);
                 net.setDesiredOutputProvider(outProvider);
             } catch (Exception e) {
 
             }           
-
+            
             try {            
                 int iterations = defIter;                            
                 double er=0d; 
@@ -184,13 +205,18 @@ public class Animation extends AnimPlugin {
                     }
                 }
                 
-                for ( int k = 0; k < iterations; k++) {                                                            
+                for ( int k = 0; k < iterations; k++) { 
+                    if (Thread.currentThread().isInterrupted()) {
+                        return;
+                    }
+                    inpProvider.reroll();
                     inpProvider.rewind();
+                    outProvider.setPermutation(inpProvider.getPermutation());
                     outProvider.rewind();
                     //double error = 0;                    
                     for (int p = 0; p < dlazdic_count; p++) {                        
                         try {
-                            for (int iter = 0; iter < 2; iter++) {
+                            //for (int iter = 0; iter < 2; iter++) {
                                 //net.calculateSingle(); 
                                 /*
                                 error = 0;
@@ -198,7 +224,7 @@ public class Animation extends AnimPlugin {
                                     error += Math.pow(net.getRow(net.getRowCount()-1).getNeuron(i).getOutput()-inpProvider.getValue(i),2);
                                 */
                                 net.adaptSingle(strategy);                                  
-                            }
+                            //}
                             inpProvider.incIndex();
                             outProvider.incIndex();
                         } catch (Exception e) {
@@ -208,19 +234,24 @@ public class Animation extends AnimPlugin {
                     }
                     
                     image2Panel.start(); 
+                    inpProvider.reroll();
                     inpProvider.rewind();
+                    outProvider.setPermutation(inpProvider.getPermutation());
                     outProvider.rewind();
-                    for (int p = 0; p < dlazdic_count; p++) {
-                        net.calculateSingle();
-                        image2Panel.change(p,size, dlazdic_w, dlazdic_h,net.getRow(net.getRowCount()-1));
+                    
+                    for (int p = 0; p < dlazdic_count; p++) {                        
+                        net.calculateSingle();                        
+                        image2Panel.change(inpProvider.getActualIndex(),size, dlazdic_w, dlazdic_h,net.getRow(net.getRowCount()-1));
                         inpProvider.incIndex();
                         outProvider.incIndex();
                     }
                     
                     image2Panel.done();
+                    inpProvider.reroll();
                     inpProvider.rewind();
+                    outProvider.setPermutation(inpProvider.getPermutation());
                     outProvider.rewind();
-                    
+
                     er = getGlobalError(inpProvider, outProvider, net);
                     text.append(k + 1 + "-th iteration :::: " + er + " error\n"); 
                     if (min_er > er || min_er == -1) {
@@ -247,7 +278,7 @@ public class Animation extends AnimPlugin {
                 
 
             } catch (Exception e) {
-
+                System.out.println("Data Exception");
             }
         }
         
@@ -289,8 +320,8 @@ public class Animation extends AnimPlugin {
     private static void value() {
         Raster r = image2Panel.image.getRaster();
         boolean same = false;        
-        DefaultListModel<ImageComp> model = new DefaultListModel<>();        
-        
+        DefaultListModel<Component> model = new DefaultListModel<>();        
+        listofImages.setModel(model); 
         
         int count = 0;
         
@@ -299,12 +330,12 @@ public class Animation extends AnimPlugin {
                 
                 // Raster pre dlazdicu z obrazka
                 int[] imgPixels = r.getPixels(dl_w * size, dl_h * size, size, size, new int[inpOutNeurons]);
-                                
+                //System.out.println(imgPixels);
                 for (int i = 0; i<model.getSize(); i++) {
-                    if (model.get(i) instanceof ImageComp) {
-                        same = true;
+                    same = true;
+                    if (model.get(i) instanceof ImageComp) {                        
                         // Raster pre dlazdicu z komponenty
-                        int[] compPixels = model.get(i).image.getRaster().getPixels(0, 0, size, size, new int[inpOutNeurons]);
+                        int[] compPixels = ((ImageComp)model.get(i)).original.getRaster().getPixels(0, 0, size, size, new int[inpOutNeurons]);
                         for (int y = 0; y < size; y++) {
                             for (int x = 0; x < size; x++) {
                                 if (compPixels[y*size+x] != imgPixels[y*size+x]) {
@@ -325,33 +356,42 @@ public class Animation extends AnimPlugin {
                 }
                 
                 if (!same) {
-                    ImageComp newComp = new ImageComp(size, size);
-                    
-                    WritableRaster writRaster = newComp.image.getRaster();
+                    count++;
+                    ImageComp newComp = new ImageComp(40, 40); 
+                                       
+                    BufferedImage bi = new BufferedImage(size,size,newComp.image.getType());
+                    WritableRaster writRaster = bi.getRaster();
                     writRaster.setPixels(0, 0, size, size, imgPixels);
+                    //newComp.resizePaintAr(imgPixels, 40/size,size);
+                    newComp.resizePaint(bi);
+                    newComp.setOriginal(bi);
                     
-                    model.addElement(newComp);                    
+                    model.addElement(newComp);  
+                    //listofImages.updateUI();
                 }
                 
-            }
-            listofImages.setModel(model);    
-            listofImages.updateUI();
+            }  
+            
+            
+            text.append("Pocet kachlikov je " + count + "\n");
     }
     
     private static void resolve() {
+        inpProvider.reroll();
         inpProvider.rewind();
+        outProvider.setPermutation(inpProvider.getPermutation());
         outProvider.rewind();
         image2Panel.start();
         for (int p = 0; p < dlazdic_count; p++) {                        
             try {                
-                net.calculateSingle();                                     
-                inpProvider.incIndex();
-                outProvider.incIndex();
+                net.calculateSingle();                                                     
             } catch (Exception e) {
 
             }
             
-            image2Panel.change(p,size, dlazdic_w, dlazdic_h,net.getRow(net.getRowCount()-1));
+            image2Panel.change(inpProvider.getActualIndex(),size, dlazdic_w, dlazdic_h,net.getRow(net.getRowCount()-1));
+            inpProvider.incIndex();
+            outProvider.incIndex();
             
         }
         image2Panel.done();
@@ -435,7 +475,8 @@ public class Animation extends AnimPlugin {
             
             @Override
             public void actionPerformed(ActionEvent e) {
-                new Thread(new Training()).start();
+                trainThread = new Thread(new Training());
+                trainThread.start();
             }
         });
         resolve = new JButton("Resolve");
@@ -443,8 +484,8 @@ public class Animation extends AnimPlugin {
             
             @Override
             public void actionPerformed(ActionEvent e) {
-                resolve();
-                value();
+                trainThread = new Thread(new Resolving());
+                trainThread.start();
             }
         });
         setBest = new JButton("Set Best");
@@ -456,8 +497,25 @@ public class Animation extends AnimPlugin {
             }
         });
         
+        stop = new JButton("Stop");
+        stop.addActionListener(new ActionListener() {                    
+            
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                if (trainThread!=null) {
+                    try {                        
+                        trainThread.interrupt();
+                    } catch (Exception exc) {
+                        LOG.log(Level.INFO,"Thread interrupted");
+                    }
+                }
+            }
+        });
+        
         // Image List
         listofImages = new JList<>(); 
+        listofImages.setLayoutOrientation(JList.HORIZONTAL_WRAP);                
+        listofImages.setVisibleRowCount(2);
         listofImages.setCellRenderer(new ImageModel());
         
         // Text Fields
@@ -470,6 +528,9 @@ public class Animation extends AnimPlugin {
         iterField = new JTextField("" + defIter);
         iterField.setColumns(20);
         iterField.setToolTipText("Number of iterations");
+        sizeField = new JTextField("" + size);
+        sizeField.setColumns(20);        
+        sizeField.setToolTipText("Size of tile");
         
         // Panels
         JPanel mainPanel = new JPanel(new BorderLayout(5,5));
@@ -477,23 +538,27 @@ public class Animation extends AnimPlugin {
         JPanel imagesPanel = new JPanel(new BorderLayout(5,5));
         JPanel btnPanel = new JPanel(new BorderLayout(5,5));
         JScrollPane pane = new JScrollPane(text);
+        listPane = new JScrollPane(listofImages,JScrollPane.VERTICAL_SCROLLBAR_ALWAYS,JScrollPane.HORIZONTAL_SCROLLBAR_ALWAYS);
         
         imagesPanel.add(image1Panel, BorderLayout.LINE_START);
         imagesPanel.add(image2Panel,BorderLayout.LINE_END);
         
         btnPanel.add(train,BorderLayout.PAGE_START);
+        btnPanel.add(stop,BorderLayout.WEST);
         btnPanel.add(setBest,BorderLayout.CENTER);
         btnPanel.add(resolve,BorderLayout.PAGE_END);        
                 
-        editFields.add(new JScrollPane(listofImages,JScrollPane.VERTICAL_SCROLLBAR_ALWAYS,JScrollPane.HORIZONTAL_SCROLLBAR_ALWAYS), BorderLayout.NORTH);
+        editFields.add(listPane, BorderLayout.NORTH);
         editFields.add(learnField, BorderLayout.WEST);
         editFields.add(hiddenField, BorderLayout.EAST);
         editFields.add(iterField,BorderLayout.CENTER);
+        editFields.add(sizeField,BorderLayout.SOUTH);
         
         mainPanel.add(imagesPanel, BorderLayout.NORTH);
         mainPanel.add(btnPanel, BorderLayout.WEST);
-        mainPanel.add(editFields, BorderLayout.EAST);
+        mainPanel.add(editFields, BorderLayout.CENTER);
         mainPanel.add(pane,BorderLayout.PAGE_END);
         panel.add(mainPanel,BorderLayout.CENTER);
+                
     }
 }

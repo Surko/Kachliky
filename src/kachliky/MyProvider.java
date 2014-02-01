@@ -6,6 +6,7 @@ package kachliky;
 
 import cz.matfyz.sykora.nngui.data.DataProvider;
 import cz.matfyz.sykora.nngui.exception.DataException;
+import java.util.Random;
 
 /**
  *
@@ -15,11 +16,18 @@ public class MyProvider implements DataProvider{
 
     private double[][] rows;
     private double[] actualRow;
+    
+    private int[] permutation;
+    private int permIndex;
     private int actualIndex; 
     
     public MyProvider(double[][] data) {
         rows = data;
         actualIndex = 0;
+        permutation = new int[rows.length];
+        for (int i = 0; i < rows.length; i++) {
+            permutation[i] = i;
+        }
     }
     
     @Override
@@ -59,16 +67,47 @@ public class MyProvider implements DataProvider{
     }
     
     public void incIndex() {
-        actualIndex++;
+        permIndex++;
+        if (permIndex >= permutation.length) {
+            actualIndex = permutation.length + 1;
+        } else {
+            actualIndex = permutation[permIndex];
+        }
     }
     
     public void decIndex() {
-        actualIndex--;
+        permIndex--;
+        if (permIndex >= permutation.length) {
+            actualIndex = permutation.length + 1;
+        } else {
+            actualIndex = permutation[permIndex];
+        }
+    }        
+    
+    public void setPermutation(int[] permutation) {
+        this.permutation = permutation;
+    }
+    
+    public int[] getPermutation() {
+        return permutation;
+    }
+    
+    public void reroll() {
+        Random random = new Random();        
+        
+        for (int i = permutation.length-1; i>0; i--) {
+            int index = random.nextInt(i + 1);
+            int a = permutation[index];
+            permutation[index]=permutation[i];
+            permutation[i]=a;
+        }
+        
     }
     
     @Override
-    public boolean rewind() {
-        actualIndex = 0;
+    public boolean rewind() {        
+        permIndex=0;
+        actualIndex = permutation[permIndex];
         return true;
     }
     
